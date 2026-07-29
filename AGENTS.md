@@ -52,8 +52,15 @@ resultado de la última auditoría del repo.
    texto del ticket.
 5. Reutilizar Page Objects y fixtures existentes en vez de crear una abstracción
    nueva si ya existe una que cubre el caso.
-6. Crear una rama `feature/PCGL-<numero>` (o `bugfix/PCGL-<numero>` para defectos)
-   ANTES de generar código, para aislar el trabajo.
+6. **`main` es siempre la rama base.** Antes de crear la rama del ticket:
+   a. Revisar en qué rama está parado el working tree actualmente.
+   b. Si NO es `main`: revisar si hay cambios sin commitear o commits sin pushear
+      en esa rama. Si los hay, **alertar al humano explícitamente** antes de seguir
+      — no cambiar de rama silenciosamente y arriesgar perder de vista un trabajo
+      en curso. Si el working tree está limpio y todo pusheado, cambiar a `main`.
+   c. Actualizar la base: `git checkout main && git pull`.
+   d. Recién ahí crear `feature/PCGL-<numero>` (o `bugfix/PCGL-<numero>` para
+      defectos) desde `main`, ANTES de generar código, para aislar el trabajo.
 7. Generar el código, ejecutar el suite, y estabilizarlo: correrlo más de una vez
    (incluido en modo paralelo) antes de darlo por estable.
 8. Documentar en un comentario al inicio del spec qué escenarios de los criterios de
