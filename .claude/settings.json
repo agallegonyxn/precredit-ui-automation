@@ -1,0 +1,6 @@
+{
+  "enabledPlugins": {
+    "ponytail@ponytail": true,
+    "skill-creator@claude-plugins-official": true
+  }
+}
