@@ -34,25 +34,81 @@ resultado de la última auditoría del repo.
 - `src/pages/` — Page Objects, una clase por pantalla/flujo.
 - `src/components/` — componentes reutilizables entre páginas (modales, etc.).
 - `src/fixtures/` — fixture de Playwright test y helpers de datos de prueba.
-- `tests/<módulo>/` — specs, nombrados `pcgl-<numero>-<slug>.spec.ts`.
+- `tests/ui/<módulo>/` — specs de UI (interacción de navegador vía Page Object
+  Model), nombrados `pcgl-<numero>-<slug>.spec.ts`.
+- `tests/api/<módulo>/` — specs de API pura, con el fixture `request` de
+  Playwright, mismo naming. Endpoints/shapes se verifican en vivo contra QA
+  antes de escribir aserciones, no se asumen del texto del test case.
+- `scripts/xray.js` — CLI para la API de Xray Cloud (status de Test Run,
+  evidencia). Uso en el header del archivo.
 
 ## Flujo de trabajo para automatizar un ticket
 
-1. Leer el ticket COMPLETO en Jira: descripción, criterios de aceptación y
-   **comentarios**. Los comentarios de QA suelen tener el alcance real, bloqueos
-   conocidos y endpoints de prueba — la descripción original no siempre refleja el
-   estado actual del ticket.
-2. Determinar si el ticket es UI, API, o ambos. No asumir que todo es un test de
-   navegador. Si es backend puro, usar el fixture `request` de Playwright en vez de
-   forzar una interacción de UI que no existe en los criterios de aceptación.
-3. Si hay ambigüedad sobre qué automatizar, o el ticket no calza con lo pedido,
-   **parar y preguntar**. No inventar un flujo de UI que no está en el ticket.
-4. Verificar los selectores contra el DOM real (inspección headless con Playwright,
+0. **Punto de partida: la Test Execution vinculada al ticket.**
+   a. En la Historia de Jira, ir a la sección "Test" y ubicar la Test Execution
+      vinculada cuyo nombre empieza con "Ejecución Automatizada". Comparar el
+      nombre sin distinguir tildes ni mayúsculas/minúsculas: "Ejecución",
+      "Ejecucion", "ejecución", "ejecucion automatizada", etc. son la misma
+      convención. Abrirla para ver los test cases agrupados en esa ejecución.
+   b. **Si no existe ninguna Test Execution vinculada con ese nombre, parar e
+      informarlo al humano explícitamente.** No inventar una, no asumir cuál es,
+      y no crearla uno mismo (crear un issue nuevo en Jira nunca es autónomo, ver
+      "Disciplina de escritura en Jira").
+   c. Para cada test case: revisar si ya está automatizado en este proyecto
+      (`tests/ui/<módulo>/` o `tests/api/<módulo>/`, según corresponda — ver
+      "Estructura"). Si no lo está, automatizarlo siguiendo el resto de este
+      flujo (pasos 1 en adelante).
+   d. El detalle de pasos de cada test case vive dentro del test case mismo en
+      Xray. **No se crean test steps nuevos, no se crean test cases nuevos, y no
+      se modifican los existentes** — son la fuente de verdad de qué probar, no
+      un borrador editable.
+   e. Ejecutar las pruebas automatizadas correspondientes a cada test case de la
+      ejecución.
+   f. Si el test pasa: marcar el **Test Run** (dentro de la Test Execution — el
+      test run, no el issue Test original) como **PASSED**, y adjuntar la
+      evidencia de esa corrida (ver "Reportes" más abajo). Esta actualización de
+      estado + evidencia es una acción pre-aprobada por el humano para este
+      flujo — no hace falta pedir permiso cada vez, a diferencia del resto de
+      escrituras en Jira (ver "Disciplina de escritura en Jira"). Se hace con
+      `scripts/xray.js set-status` / `add-evidence` (uso completo en el header
+      del script); el testIssueId/testExecIssueId se resuelven antes vía Jira.
+   g. Si el test falla: marcar el Test Run como **FAILED** con su evidencia
+      adjunta (misma pre-aprobación que en el punto anterior), y seguir el flujo
+      de "Cuando un test falla por algo que no es la automatización" más abajo
+      para el triage y — solo con confirmación humana explícita — la creación
+      del Bug/Defecto vinculado a ese test.
+   h. **Si el 100% de los test cases de la ejecución quedan PASSED**, comentar en
+      la Historia (el ticket principal, ej. PCGL-140 — no en la Test Execution)
+      con el resumen de cierre. Esta escritura también está pre-aprobada: se
+      publica y solo se notifica que se agregó, sin pedir permiso cada vez. Un
+      comentario de cierre por ejecución, no uno por intento (mismo criterio que
+      el resto de "Disciplina de escritura en Jira"). Formato:
+
+      ```
+      [QA Automation]
+      Fecha de ejecución: <YYYY-MM-DD>
+      Rama: <branch> (commit <hash corto>)
+      Herramienta: Playwright + TypeScript (POM) — Claude Code, con
+      estabilización y revisión manual
+      Resultado: <N>/<N> passed
+      Ejecución: <link a la Test Execution "Ejecución Automatizada">
+      Test cases cubiertos: <PCGL-XXXX, PCGL-YYYY, ...>
+      Evidencia: <link al reporte HTML/video, si aplica>
+      ```
+
+1. Determinar si el test case es UI, API, o ambos, según sus pasos. No asumir que
+   todo es un test de navegador. Si es backend puro, usar el fixture `request` de
+   Playwright en vez de forzar una interacción de UI que no está en los pasos del
+   test case.
+2. Si hay ambigüedad sobre qué automatizar, o el test case no calza con lo
+   descrito en sus pasos, **parar y preguntar**. No inventar un flujo de UI que no
+   está en el test case.
+3. Verificar los selectores contra el DOM real (inspección headless con Playwright,
    o pedirle al humano que confirme) antes de escribirlos. No adivinar a partir del
-   texto del ticket.
-5. Reutilizar Page Objects y fixtures existentes en vez de crear una abstracción
+   texto del test case.
+4. Reutilizar Page Objects y fixtures existentes en vez de crear una abstracción
    nueva si ya existe una que cubre el caso.
-6. **`main` es siempre la rama base.** Antes de crear la rama del ticket:
+5. **`main` es siempre la rama base.** Antes de crear la rama del ticket:
    a. Revisar en qué rama está parado el working tree actualmente.
    b. Si NO es `main`: revisar si hay cambios sin commitear o commits sin pushear
       en esa rama. Si los hay, **alertar al humano explícitamente** antes de seguir
@@ -61,11 +117,11 @@ resultado de la última auditoría del repo.
    c. Actualizar la base: `git checkout main && git pull`.
    d. Recién ahí crear `feature/PCGL-<numero>` (o `bugfix/PCGL-<numero>` para
       defectos) desde `main`, ANTES de generar código, para aislar el trabajo.
-7. Generar el código, ejecutar el suite, y estabilizarlo: correrlo más de una vez
+6. Generar el código, ejecutar el suite, y estabilizarlo: correrlo más de una vez
    (incluido en modo paralelo) antes de darlo por estable.
-8. Documentar en un comentario al inicio del spec qué escenarios de los criterios de
-   aceptación se cubren y cuáles quedan fuera de alcance, y por qué. Nunca dejar un
-   vacío de cobertura sin explicarlo.
+7. Documentar en un comentario al inicio del spec qué test cases de la Ejecución
+   Automatizada se cubren y cuáles quedan fuera de alcance, y por qué. Nunca dejar
+   un vacío de cobertura sin explicarlo.
 
 ## Reglas fijas (no negociables sin aprobación explícita del humano en la conversación)
 
@@ -79,17 +135,12 @@ resultado de la última auditoría del repo.
 - El acceso a Jira es por sesión individual de cada persona (conector MCP de
   Atlassian vía `/mcp`, o token API personal según la herramienta). Nunca se
   comparte ni se guarda la sesión o el token de otra persona en el repo.
-
-## Cómo se sube la evidencia a Jira
-
-El equipo ya tiene una convención propia (verificada en comentarios reales de
-PCGL-680, PCGL-3242, etc.) — seguirla tal cual, no inventar un formato nuevo:
-
-```
-Prueba: <link al issue de Test o Test Execution>
-Resultado: Aprobado / Rechazado / Finalizada
-Evidencia: <link a carpeta de evidencia, o adjunto del reporte HTML/video>
-```
+- El acceso a la API de Xray Cloud (para marcar status de Test Run y subir
+  evidencia, ver paso 0 del flujo de trabajo) es igual de personal: cada quien
+  genera su propio `XRAY_CLIENT_ID`/`XRAY_CLIENT_SECRET` (Xray → Global
+  Settings → API Keys) y lo pone en su `.env` local. `.env.example` solo
+  documenta las variables, siempre vacías — nunca se commitean credenciales
+  reales de Xray, propias o ajenas.
 
 ## Cuando un test falla por algo que no es la automatización
 
@@ -154,6 +205,15 @@ nunca creación:
 - Antes de cualquier escritura en Jira (comentario, adjunto, transición), decir
   explícitamente en la conversación qué se va a escribir y dónde, y esperar el
   visto bueno — igual que con el commit de código.
+- **Excepción pre-aprobada:** marcar el Test Run como PASSED/FAILED dentro de una
+  Test Execution "Ejecución Automatizada" y adjuntarle la evidencia de esa
+  corrida, y — si el 100% de los test cases de la ejecución quedan PASSED —
+  comentar el resumen de cierre en la Historia (ver paso 0 del flujo de
+  trabajo), no requieren pedir permiso cada vez: el humano ya aprobó estas
+  acciones como parte del proceso estándar; alcanza con notificar que se
+  hicieron. Esto NO incluye transicionar el issue Test original ni el estado de
+  la Historia, ni crear el Bug/Defecto asociado a un fallo, que siguen
+  requiriendo confirmación explícita.
 
 ## Particularidades conocidas del ambiente QA (qa.pre-credit.com)
 

@@ -1,23 +1,32 @@
-import { test, expect } from '../../src/fixtures';
+import { test, expect } from '../../../src/fixtures';
 import { Page, TestInfo } from '@playwright/test';
-import { SignUpPage } from '../../src/pages/SignUpPage';
-import { uniqueTestEmail } from '../../src/fixtures/testData';
+import { SignUpPage } from '../../../src/pages/SignUpPage';
+import { uniqueTestEmail } from '../../../src/fixtures/testData';
 
 // PCGL-140 — ACC.AJ.1.1.1 Sign Up: Envío y validación de OTP (correo externo)
 //
 // Alcance de este spec (confirmado en vivo contra QA antes de escribir el test):
-// - Escenario 1 (parcial): apertura del modal OTP y estado inicial de controles.
-// - Escenario 2: OTP incorrecto.
-// - Escenario 6: 3 intentos fallidos habilitan "Reenviar OTP"; reenvío exitoso.
+// - PCGL-3249 — email mal formado: mensaje inline y botón deshabilitado. La app
+//   muestra "Correo inválido" en vez de "Formato inválido" (criterio de
+//   aceptación, Escenario 1) — ver PCGL-3825 (Defect, creado y confirmado con
+//   el humano antes de automatizar). El test asserta el texto real.
+// - PCGL-3250 (Escenario 1, parcial): apertura del modal OTP y estado inicial
+//   de controles (E1).
+// - Escenario 2: OTP incorrecto (E2).
+// - Escenario 6: 3 intentos fallidos habilitan "Reenviar OTP"; reenvío exitoso
+//   (E6).
 //
-// Fuera de alcance (documentado, no omitido por descuido):
-// - Escenario 1 completo (código correcto): el endpoint de prueba _test/otp invalida
-//   el OTP que la propia UI genera al hacer clic en "Crear cuenta" ("último gana"),
-//   por lo que el código obtenido nunca es el que el modal está validando. El mismo
-//   bloqueo está documentado por el equipo en los comentarios de PCGL-140 y ya se
-//   verifica a nivel API en apps/api/tests/core/pcgl-140-otp-signup.spec.ts.
-// - Escenario 5 (expiración, 10 min) y Escenario 6bis (bloqueo tras 3 reenvíos,
-//   requiere 9 intentos fallidos + 3 reenvíos): no incluidos en esta primera entrega.
+// Fuera de alcance en ESTE spec de UI, pero cubierto a nivel API en
+// tests/api/auth/pcgl-140-otp-api.spec.ts (misma Ejecución Automatizada PCGL-3824):
+// - Escenario 5 (expiración) → PCGL-2898.
+// - Escenario 6bis (bloqueo tras 3 reenvíos) → PCGL-3248.
+//
+// Fuera de alcance en todo el proyecto (ningún test case de la ejecución lo
+// exige):
+// - Escenario 1 completo (código correcto): el endpoint de prueba _test/otp
+//   invalida el OTP que la propia UI genera al hacer clic en "Crear cuenta"
+//   ("último gana"), por lo que el código obtenido nunca es el que el modal
+//   está validando. Documentado también en los comentarios de PCGL-140.
 
 async function attachScreenshot(page: Page, testInfo: TestInfo, name: string) {
   await testInfo.attach(name, { body: await page.screenshot(), contentType: 'image/png' });
@@ -92,6 +101,29 @@ test.describe('PCGL-140 — Sign Up OTP', () => {
       await signUpPage.otpModal.resend();
       await expect(signUpPage.otpModal.toast(/OTP enviado con éxito/i)).toBeVisible();
       await attachScreenshot(page, testInfo, '03-toast-reenvio-exitoso');
+    });
+  });
+});
+
+test.describe('PCGL-140 — Sign Up email inválido', () => {
+  test('PCGL-3249 — email mal formado muestra mensaje inline y deshabilita Crear cuenta', async ({
+    page,
+  }, testInfo) => {
+    const signUpPage = new SignUpPage(page);
+    await signUpPage.goto();
+
+    await test.step('Ingresar email mal formado y quitar el foco', async () => {
+      await signUpPage.emailInput.fill('no-es-un-email');
+      await signUpPage.emailInput.blur();
+    });
+
+    await test.step('Se muestra mensaje inline y el botón queda deshabilitado', async () => {
+      // Defecto conocido (PCGL-3825): el criterio de aceptación pide el texto
+      // "Formato inválido"; la app real muestra "Correo inválido". Se asserta
+      // el comportamiento real, no el del criterio.
+      await expect(signUpPage.emailInlineError).toBeVisible();
+      await expect(signUpPage.createAccountButton).toBeDisabled();
+      await attachScreenshot(page, testInfo, '01-email-invalido');
     });
   });
 });
