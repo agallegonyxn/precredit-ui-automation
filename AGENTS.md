@@ -290,6 +290,21 @@ nunca creación:
   `expect()` y del test están ampliados en `playwright.config.ts` (15s / 60s) para
   compensar esto — si aparecen fallos "flaky" de timing en tests nuevos, revisar ahí
   antes de asumir un bug de la app.
+- El login (`/auth/login`) usa reCAPTCHA con scoring de comportamiento: un
+  Chromium controlado por Playwright, sin más, queda marcado como automatizado
+  y la SPA nunca navega tras el login aunque la API responda 201 (confirmado:
+  login manual con la misma cuenta sí funciona). Mitigado en
+  `playwright.config.ts` (`--disable-blink-features=AutomationControlled`) +
+  `LoginPage.login()`, que además reintenta limpiando cookies/localStorage
+  entre intentos (un intento fallido puede dejar tokens guardados que
+  confunden al siguiente) y espera ~3s tras cargar el form antes de llenarlo
+  (llenarlo apenas carga, antes de que reCAPTCHA/Angular inicialicen, baja
+  notablemente la tasa de éxito). Usar siempre `LoginPage.login()`, nunca
+  loguear a mano en un test nuevo.
+- Evitar corridas de login muy seguidas contra la misma cuenta mientras se
+  depura manualmente (fuera del test suite) — puede activar un rate-limit
+  temporal que bloquea el render de la SPA por completo (no solo el login),
+  observado durante el desarrollo de este flujo.
 
 ## Reportes
 

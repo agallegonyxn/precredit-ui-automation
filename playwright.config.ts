@@ -23,6 +23,12 @@ export default defineConfig({
     trace: 'on-first-retry',
     screenshot: 'on',
     video: 'on',
+    // El login real usa reCAPTCHA con scoring de comportamiento; sin este flag,
+    // Chromium controlado por Playwright queda marcado como automatizado y el
+    // login nunca redirige (ver LoginPage.login() para el reintento asociado).
+    launchOptions: {
+      args: ['--disable-blink-features=AutomationControlled'],
+    },
   },
   projects: [
     { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
