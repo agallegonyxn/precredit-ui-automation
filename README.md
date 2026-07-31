@@ -17,10 +17,12 @@ npm run report       # abre el último reporte HTML (usa este comando, no abras 
 ## Estructura
 
 ```
-src/pages/        Page Objects
-src/components/   componentes reutilizables (modales, etc.)
-src/fixtures/     fixture de test + datos de prueba
-tests/<módulo>/   specs, uno por ticket/feature
+src/pages/            Page Objects
+src/components/       componentes reutilizables (modales, etc.)
+src/fixtures/         fixture de test + datos de prueba
+tests/ui/<módulo>/    specs de UI (navegador, POM)
+tests/api/<módulo>/   specs de API pura (fixture request)
+scripts/              CLI de Xray Cloud y de adjuntos a Jira (ver AGENTS.md)
 ```
 
 ## Para agentes / flujo de trabajo con Jira

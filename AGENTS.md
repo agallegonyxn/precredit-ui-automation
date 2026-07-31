@@ -39,17 +39,24 @@ resultado de la última auditoría del repo.
 - `tests/api/<módulo>/` — specs de API pura, con el fixture `request` de
   Playwright, mismo naming. Endpoints/shapes se verifican en vivo contra QA
   antes de escribir aserciones, no se asumen del texto del test case.
-- `scripts/xray.js` — CLI para la API de Xray Cloud (status de Test Run,
-  evidencia). Uso en el header del archivo.
+- `scripts/xray.js` — CLI para la API de Xray Cloud (status de Test Run/paso,
+  evidencia por paso). Uso en el header del archivo.
+- `scripts/jira-attach.js` — CLI para subir un adjunto a un issue de Jira (API
+  REST v3, token personal). Uso en el header del archivo.
 
 ## Flujo de trabajo para automatizar un ticket
 
 0. **Punto de partida: la Test Execution vinculada al ticket.**
-   a. En la Historia de Jira, ir a la sección "Test" y ubicar la Test Execution
-      vinculada cuyo nombre empieza con "Ejecución Automatizada". Comparar el
-      nombre sin distinguir tildes ni mayúsculas/minúsculas: "Ejecución",
-      "Ejecucion", "ejecución", "ejecucion automatizada", etc. son la misma
-      convención. Abrirla para ver los test cases agrupados en esa ejecución.
+   a. En la Historia de Jira, ir a la sección "Test" y ubicar la(s) Test
+      Execution(s) vinculada(s) cuyo nombre empieza con "Ejecución
+      Automatizada". Comparar el nombre sin distinguir tildes ni
+      mayúsculas/minúsculas: "Ejecución", "Ejecucion", "ejecución",
+      "ejecucion automatizada", etc. son la misma convención.
+      - **Si hay más de una vinculada**, abrir la que tenga estado **"Tareas
+        por hacer"** — las demás ya se ejecutaron (quedaron en otro estado).
+        Si hay más de una en "Tareas por hacer" a la vez, o ninguna, es
+        ambigüedad: parar y preguntar, no adivinar cuál corresponde.
+      - Abrirla para ver los test cases agrupados en esa ejecución.
    b. **Si no existe ninguna Test Execution vinculada con ese nombre, parar e
       informarlo al humano explícitamente.** No inventar una, no asumir cuál es,
       y no crearla uno mismo (crear un issue nuevo en Jira nunca es autónomo, ver
@@ -62,27 +69,64 @@ resultado de la última auditoría del repo.
       Xray. **No se crean test steps nuevos, no se crean test cases nuevos, y no
       se modifican los existentes** — son la fuente de verdad de qué probar, no
       un borrador editable.
-   e. Ejecutar las pruebas automatizadas correspondientes a cada test case de la
-      ejecución.
-   f. Si el test pasa: marcar el **Test Run** (dentro de la Test Execution — el
-      test run, no el issue Test original) como **PASSED**, y adjuntar la
-      evidencia de esa corrida (ver "Reportes" más abajo). Esta actualización de
-      estado + evidencia es una acción pre-aprobada por el humano para este
-      flujo — no hace falta pedir permiso cada vez, a diferencia del resto de
-      escrituras en Jira (ver "Disciplina de escritura en Jira"). Se hace con
-      `scripts/xray.js set-status` / `add-evidence` (uso completo en el header
-      del script); el testIssueId/testExecIssueId se resuelven antes vía Jira.
-   g. Si el test falla: marcar el Test Run como **FAILED** con su evidencia
-      adjunta (misma pre-aprobación que en el punto anterior), y seguir el flujo
-      de "Cuando un test falla por algo que no es la automatización" más abajo
-      para el triage y — solo con confirmación humana explícita — la creación
-      del Bug/Defecto vinculado a ese test.
-   h. **Si el 100% de los test cases de la ejecución quedan PASSED**, comentar en
+   e. **Antes de empezar a correr los test cases**, transicionar el issue Test
+      Execution (la ejecución en sí, no los test cases) a **"En curso"**. Esta
+      transición está pre-aprobada: se hace sola y solo se notifica, a
+      diferencia de la regla general de "nunca transicionar el estado de un
+      issue" (ver "Disciplina de escritura en Jira").
+   f. Ejecutar la prueba automatizada de un test case. **Apenas termine esa
+      prueba puntual — no esperar a que termine toda la ejecución —**, marcar
+      sus resultados directo en Xray (no se opera la pantalla de ejecución de
+      Xray a mano; se logra el mismo resultado con la API a nivel de paso —
+      `scripts/xray.js`, uso completo en el header del script):
+      - Para cada **paso (step)** del test case en Xray: marcar su status
+        (PASSED/FAILED) con `set-step-status` y adjuntar la evidencia de ese paso
+        con `add-step-evidence`. El status de un paso refleja si su resultado
+        esperado **realmente se cumplió** — no si el código del test terminó
+        sin lanzar una excepción. Un assert que documenta a propósito un
+        comportamiento real defectuoso (ver paso g) sigue siendo **FAIL** a
+        nivel de paso, aunque Playwright lo reporte en verde.
+      - Con todos los pasos de ese test case marcados, setear el **Test Run**
+        agregado (`set-status`, dentro de la Test Execution — no el issue Test
+        original): **PASSED** solo si TODOS sus pasos quedaron PASS. Si algún
+        paso quedó FAIL, el Test Run es **FAILED** — nunca PASSED, aunque la
+        mayoría de los pasos hayan pasado.
+      - Esta actualización (status + evidencia, a nivel de paso y de Test Run)
+        es una acción pre-aprobada — no hace falta pedir permiso cada vez, a
+        diferencia del resto de escrituras en Jira (ver "Disciplina de
+        escritura en Jira"). El testIssueId/testExecIssueId/stepId se resuelven
+        antes vía Jira/Xray.
+   g. Si algún paso falla: seguir el flujo de "Cuando un test falla por algo
+      que no es la automatización" más abajo para el triage y — solo con
+      confirmación humana explícita — la creación del Bug/Defecto. Al crearlo,
+      asociarlo al paso que falló (`add-step-defect`) y adjuntarle la captura
+      como evidencia de ESE paso (`add-step-evidence`), no solo del Test Run
+      general.
+   h. **Al completar el 100% de los test cases de la ejecución** (todos
+      corridos y con su Test Run marcado), transicionar el issue Test
+      Execution de "En curso" a **"Finalizada"** — sin importar si el
+      resultado combinado tiene algún FAILED o es 100% PASSED. Misma
+      pre-aprobación que la transición a "En curso" del paso e.
+   i. **Si además el 100% de los Test Run quedan en PASSED según el paso f**
+      (nunca por asumir que "Playwright terminó en verde" — un test que
+      documenta a propósito un comportamiento defectuoso está FAILED aunque el
+      código no haya lanzado una excepción), comentar en
       la Historia (el ticket principal, ej. PCGL-140 — no en la Test Execution)
-      con el resumen de cierre. Esta escritura también está pre-aprobada: se
-      publica y solo se notifica que se agregó, sin pedir permiso cada vez. Un
-      comentario de cierre por ejecución, no uno por intento (mismo criterio que
-      el resto de "Disciplina de escritura en Jira"). Formato:
+      con el resumen de cierre y el reporte HTML como adjunto. Esta escritura
+      también está pre-aprobada: se publica y solo se notifica que se agregó,
+      sin pedir permiso cada vez. Un comentario de cierre por ejecución, no uno
+      por intento (mismo criterio que el resto de "Disciplina de escritura en
+      Jira").
+
+      El reporte se adjunta comprimiendo `playwright-report/` (incluye
+      `index.html` + `data/`, así las imágenes/videos/traces embebidos cargan
+      igual que con `show-report`) en un `.zip` con nombre descriptivo, ej.
+      `Reporte de Ejecucion de Pruebas Automatizadas.zip` — el nombre del
+      `.zip` es libre, `show-report` solo necesita que el entry interno se siga
+      llamando `index.html` (verificado: `npx playwright show-report
+      "<nombre descriptivo>.zip"` funciona igual). Se sube con
+      `scripts/jira-attach.js <issueKey> <filePath>` (token personal, no el
+      conector MCP — ver "Reglas fijas"). Formato del comentario:
 
       ```
       [QA Automation]
@@ -91,9 +135,9 @@ resultado de la última auditoría del repo.
       Herramienta: Playwright + TypeScript (POM) — Claude Code, con
       estabilización y revisión manual
       Resultado: <N>/<N> passed
-      Ejecución: <link a la Test Execution "Ejecución Automatizada">
-      Test cases cubiertos: <PCGL-XXXX, PCGL-YYYY, ...>
-      Evidencia: <link al reporte HTML/video, si aplica>
+      Ejecución: [PCGL-XXXX](<url de la Test Execution "Ejecución Automatizada">)
+      Test cases cubiertos: [PCGL-XXXX](url), [PCGL-YYYY](url), ...
+      Evidencia: reporte HTML adjunto a este comentario
       ```
 
 1. Determinar si el test case es UI, API, o ambos, según sus pasos. No asumir que
@@ -132,9 +176,12 @@ resultado de la última auditoría del repo.
   duda, detenerse y preguntar.
 - Nunca commitear credenciales, tokens o secretos. `.env` está en `.gitignore`;
   `.env.example` documenta qué variables hacen falta, siempre vacías.
-- El acceso a Jira es por sesión individual de cada persona (conector MCP de
-  Atlassian vía `/mcp`, o token API personal según la herramienta). Nunca se
-  comparte ni se guarda la sesión o el token de otra persona en el repo.
+- El acceso a Jira es por sesión individual de cada persona: conector MCP de
+  Atlassian vía `/mcp` para lectura/comentarios/creación de issues, y token API
+  personal (`JIRA_EMAIL`/`JIRA_API_TOKEN`, generado en el perfil de Atlassian →
+  seguridad → API tokens, sin costo) para lo que el MCP no cubre — hoy,
+  adjuntar archivos (`scripts/jira-attach.js`), ver paso 0.i. Nunca se comparte
+  ni se guarda la sesión o el token de otra persona en el repo.
 - El acceso a la API de Xray Cloud (para marcar status de Test Run y subir
   evidencia, ver paso 0 del flujo de trabajo) es igual de personal: cada quien
   genera su propio `XRAY_CLIENT_ID`/`XRAY_CLIENT_SECRET` (Xray → Global
@@ -200,20 +247,30 @@ nunca creación:
 - Un comentario por ejecución, no uno por intento. Si el suite se corrió varias
   veces mientras se estabilizaba, se sube evidencia de la corrida final aprobada
   por el humano — no un comentario por cada corrida intermedia.
+- Cualquier URL en un comentario o descripción de Jira (link a otro issue, a la
+  Test Execution, a un reporte, etc.) se escribe como link markdown
+  `[texto](url)`, nunca como texto plano — texto plano no queda clickeable en
+  Jira. `contentFormat: markdown` no autoconvierte URLs sueltas.
 - Nunca transicionar el estado del issue (ej. mover a "Finalizada") a menos que el
   humano lo pida explícitamente. Reportar resultado en el comentario alcanza.
 - Antes de cualquier escritura en Jira (comentario, adjunto, transición), decir
   explícitamente en la conversación qué se va a escribir y dónde, y esperar el
   visto bueno — igual que con el commit de código.
-- **Excepción pre-aprobada:** marcar el Test Run como PASSED/FAILED dentro de una
-  Test Execution "Ejecución Automatizada" y adjuntarle la evidencia de esa
-  corrida, y — si el 100% de los test cases de la ejecución quedan PASSED —
-  comentar el resumen de cierre en la Historia (ver paso 0 del flujo de
-  trabajo), no requieren pedir permiso cada vez: el humano ya aprobó estas
-  acciones como parte del proceso estándar; alcanza con notificar que se
-  hicieron. Esto NO incluye transicionar el issue Test original ni el estado de
-  la Historia, ni crear el Bug/Defecto asociado a un fallo, que siguen
-  requiriendo confirmación explícita.
+- **Excepción pre-aprobada:** transicionar el issue Test Execution a "En curso"
+  antes de empezar a correr los test cases, marcar el status y adjuntar
+  evidencia de cada **paso** y del **Test Run** agregado dentro de esa Test
+  Execution "Ejecución Automatizada" (inmediatamente al completar cada test
+  case, no al final de toda la ejecución), asociar un Bug/Defecto ya creado al
+  paso que falló, transicionar esa misma Test Execution a "Finalizada" al
+  completar el 100% de los test cases (haya o no algún FAILED), y — si además
+  el 100% quedan PASSED — comentar el resumen de cierre en la Historia con el
+  reporte HTML adjunto (ver paso 0 del flujo de trabajo); ninguna de estas
+  requiere pedir permiso cada
+  vez: el humano ya aprobó estas acciones como parte del proceso estándar;
+  alcanza con notificar que se hicieron. Esto NO incluye transicionar el issue
+  Test original ni el estado de la Historia, ni **crear** el Bug/Defecto
+  asociado a
+  un fallo, que siguen requiriendo confirmación explícita.
 
 ## Particularidades conocidas del ambiente QA (qa.pre-credit.com)
 

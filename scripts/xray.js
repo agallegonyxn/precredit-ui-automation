@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-// Helper de línea de comandos para la API de Xray Cloud (GraphQL):
-// marcar status de un Test Run y adjuntarle evidencia.
+// Helper de línea de comandos para la API de Xray Cloud (GraphQL): marcar
+// status y adjuntar evidencia a nivel de Test Run y de paso individual, y
+// asociar un Bug/Defecto ya creado al paso que falló.
 //
 // El testIssueId/testExecIssueId son los IDs internos de Jira (no las keys,
 // ej. PCGL-3243) — resolverlos antes con Jira (MCP de Atlassian) y pasarlos
@@ -11,6 +12,10 @@
 //   node scripts/xray.js set-status <testRunId> <PASSED|FAILED>
 //   node scripts/xray.js add-evidence <testRunId> <filePath>
 //   node scripts/xray.js reset <testRunId>
+//   node scripts/xray.js get-test <testIssueId>                       # lista los steps (id/action/data/result)
+//   node scripts/xray.js set-step-status <testRunId> <stepId> <PASSED|FAILED>
+//   node scripts/xray.js add-step-evidence <testRunId> <stepId> <filePath>
+//   node scripts/xray.js add-step-defect <testRunId> <stepId> <issueKey>
 
 require('dotenv').config();
 const fs = require('fs');
@@ -116,6 +121,67 @@ async function resetRun(token, testRunId) {
   return data.resetTestRun;
 }
 
+async function getTest(token, testIssueId) {
+  const data = await graphql(
+    token,
+    `query($issueId: String!) {
+      getTest(issueId: $issueId) {
+        issueId
+        steps { id action data result }
+      }
+    }`,
+    { issueId: testIssueId }
+  );
+  return data.getTest;
+}
+
+async function setStepStatus(token, testRunId, stepId, status) {
+  const data = await graphql(
+    token,
+    `mutation($testRunId: String!, $stepId: String!, $status: String!) {
+      updateTestRunStepStatus(testRunId: $testRunId, stepId: $stepId, status: $status) {
+        warnings
+      }
+    }`,
+    { testRunId, stepId, status }
+  );
+  return data.updateTestRunStepStatus;
+}
+
+async function addStepEvidence(token, testRunId, stepId, filePath) {
+  const filename = path.basename(filePath);
+  const data64 = fs.readFileSync(filePath).toString('base64');
+  const data = await graphql(
+    token,
+    `mutation($testRunId: String!, $stepId: String!, $evidence: [AttachmentDataInput]) {
+      addEvidenceToTestRunStep(testRunId: $testRunId, stepId: $stepId, evidence: $evidence) {
+        addedEvidence
+        warnings
+      }
+    }`,
+    {
+      testRunId,
+      stepId,
+      evidence: [{ filename, mimeType: guessMimeType(filename), data: data64 }],
+    }
+  );
+  return data.addEvidenceToTestRunStep;
+}
+
+async function addStepDefect(token, testRunId, stepId, issueKey) {
+  const data = await graphql(
+    token,
+    `mutation($testRunId: String!, $stepId: String!, $issues: [String]) {
+      addDefectsToTestRunStep(testRunId: $testRunId, stepId: $stepId, issues: $issues) {
+        addedDefects
+        warnings
+      }
+    }`,
+    { testRunId, stepId, issues: [issueKey] }
+  );
+  return data.addDefectsToTestRunStep;
+}
+
 async function main() {
   const [, , cmd, ...args] = process.argv;
   if (!process.env.XRAY_CLIENT_ID || !process.env.XRAY_CLIENT_SECRET) {
@@ -144,9 +210,29 @@ async function main() {
       console.log(await resetRun(token, testRunId));
       break;
     }
+    case 'get-test': {
+      const [testIssueId] = args;
+      console.log(JSON.stringify(await getTest(token, testIssueId)));
+      break;
+    }
+    case 'set-step-status': {
+      const [testRunId, stepId, status] = args;
+      console.log(await setStepStatus(token, testRunId, stepId, status));
+      break;
+    }
+    case 'add-step-evidence': {
+      const [testRunId, stepId, filePath] = args;
+      console.log(await addStepEvidence(token, testRunId, stepId, filePath));
+      break;
+    }
+    case 'add-step-defect': {
+      const [testRunId, stepId, issueKey] = args;
+      console.log(await addStepDefect(token, testRunId, stepId, issueKey));
+      break;
+    }
     default:
       console.error(
-        'Uso: node scripts/xray.js <get-run|set-status|add-evidence|reset> ...'
+        'Uso: node scripts/xray.js <get-run|set-status|add-evidence|reset|get-test|set-step-status|add-step-evidence|add-step-defect> ...'
       );
       process.exitCode = 1;
   }
